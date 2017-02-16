@@ -80,7 +80,7 @@ static FRESULT fatfs_error(const char *context, const char *filename, FRESULT rc
  * @brief fatfs_mkfs Make a new FAT filesystem
  * @param fatfp the file to contain the raw filesystem data
  * @param fatfp_offset the offset within fatfp for where to start
- * @param block_count how many 512 blocks
+ * @param block_count how many BLOCK_SIZE blocks
  * @return 0 on success
  */
 int fatfs_mkfs(struct fat_cache *fc, int block_count)
@@ -109,7 +109,7 @@ int fatfs_mkfs(struct fat_cache *fc, int block_count)
     // NOTE3: Specify FM_SFD (super-floppy disk) to avoid fatfs wanting to create
     // a master boot record.
     char buffer[_MAX_SS];
-    CHECK("fat_mkfs", NULL, f_mkfs("", FM_SFD|FM_FAT|FM_FAT32, 512, buffer, sizeof(buffer)));
+    CHECK("fat_mkfs", NULL, f_mkfs("", FM_SFD|FM_FAT|FM_FAT32, BLOCK_SIZE, buffer, sizeof(buffer)));
 
     return 0;
 }
@@ -390,7 +390,7 @@ int fatfs_pwrite(struct fat_cache *fc,const char *filename, int offset, const ch
 
             // Write zeros.
             DWORD zero_count = desired_offset - f_tell(&fil_);
-            char zero_buffer[512];
+            char zero_buffer[BLOCK_SIZE];
             memset(zero_buffer, 0, sizeof(zero_buffer));
             while (zero_count) {
                 DWORD btw = (zero_count < sizeof(zero_buffer) ? zero_count : sizeof(zero_buffer));

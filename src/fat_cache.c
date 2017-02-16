@@ -31,7 +31,7 @@ static inline bool is_valid(struct fat_cache *fc, int block)
 /**
  * @brief Simple cache for operating on FAT filesystems
  *
- * The FATFS code makes small 512 byte reads and writes to the underlying media. On systems
+ * The FATFS code makes small BLOCK_SIZE byte reads and writes to the underlying media. On systems
  * that don't have a cache between fwup and the disk, this can double the update time. Caching
  * is fairly simple due to some simple assumptions:
  *
@@ -57,7 +57,7 @@ int fat_cache_init(struct fat_cache *fc, int fd, off_t partition_offset, size_t 
     fc->cache = malloc(cache_size);
     if (!fc->cache)
         ERR_RETURN("Could not allocate FAT cache of %d bytes", cache_size);
-    fc->cache_size_blocks = cache_size / 512;
+    fc->cache_size_blocks = cache_size / BLOCK_SIZE;
 
     fc->flags = malloc(fc->cache_size_blocks / 4);
     if (!fc->flags)
@@ -85,23 +85,23 @@ void fat_cache_format(struct fat_cache *fc)
     // Optimization: Initialize the first 128 KB or else there's a
     // random patchwork in the beginning that gets flushed at the end.
     if (fc->cache_size_blocks >= 256) {
-        memset(fc->cache, 0, 256 * 512);
+        memset(fc->cache, 0, 256 * BLOCK_SIZE);
         memset(fc->flags, 0xff, 256 / 4);
     }
 }
 
 static ssize_t load_cache(struct fat_cache *fc, int block, int count)
 {
-    size_t byte_count = count * 512;
+    size_t byte_count = count * BLOCK_SIZE;
     ssize_t rc = 0;
     if (fc->read_on_invalid) {
-        off_t byte_offset = fc->partition_offset + block * 512;
-        rc = pread(fc->fd, &fc->cache[block * 512], byte_count, byte_offset);
+        off_t byte_offset = fc->partition_offset + block * BLOCK_SIZE;
+        rc = pread(fc->fd, &fc->cache[block * BLOCK_SIZE], byte_count, byte_offset);
         if (rc < 0)
             ERR_RETURN("Error reading FAT filesystem");
     } else {
         // Not sure why we're reading an uninitialized block, but set it to 0s
-        memset(&fc->cache[block * 512], 0, byte_count);
+        memset(&fc->cache[block * BLOCK_SIZE], 0, byte_count);
     }
 
     int i;
@@ -126,10 +126,10 @@ int fat_cache_read(struct fat_cache *fc, off_t block, size_t count, char *buffer
     if (block + count > fc->cache_size_blocks) {
         off_t uncached_block = (block > (off_t) fc->cache_size_blocks ? block : (off_t) fc->cache_size_blocks);
         off_t uncached_count = block + count - uncached_block;
-        char *uncached_buffer = buffer + (uncached_block - block) * 512;
+        char *uncached_buffer = buffer + (uncached_block - block) * BLOCK_SIZE;
 
-        off_t byte_offset = fc->partition_offset + uncached_block * 512;
-        size_t byte_count = uncached_count * 512;
+        off_t byte_offset = fc->partition_offset + uncached_block * BLOCK_SIZE;
+        size_t byte_count = uncached_count * BLOCK_SIZE;
 
         ssize_t amount_read = pread(fc->fd, uncached_buffer, byte_count, byte_offset);
         if (amount_read < 0)
@@ -152,7 +152,7 @@ int fat_cache_read(struct fat_cache *fc, off_t block, size_t count, char *buffer
     }
 
     if (all_invalid) {
-        // If we have to read from Flash, see if we can read up to 128 KB (256 * 512 byte blocks)
+        // If we have to read from Flash, see if we can read up to 128 KB (256 * BLOCK_SIZE byte blocks)
         size_t precache_count = count;
         for (; precache_count < 256 && block + precache_count < fc->cache_size_blocks; precache_count++) {
             if (is_valid(fc, block + precache_count))
@@ -172,7 +172,7 @@ int fat_cache_read(struct fat_cache *fc, off_t block, size_t count, char *buffer
         }
     }
 
-    memcpy(buffer, &fc->cache[block * 512], count * 512);
+    memcpy(buffer, &fc->cache[block * BLOCK_SIZE], count * BLOCK_SIZE);
     return 0;
 }
 
@@ -194,13 +194,13 @@ ssize_t fat_cache_write(struct fat_cache *fc, off_t block, size_t count, const c
     ssize_t rc = 0;
     off_t last = block + count;
     for (; block < last && block < (off_t) fc->cache_size_blocks; block++) {
-        memcpy(&fc->cache[512 * block], buffer, 512);
+        memcpy(&fc->cache[BLOCK_SIZE * block], buffer, BLOCK_SIZE);
         set_dirty(fc, block);
-        buffer += 512;
+        buffer += BLOCK_SIZE;
     }
     if (block != last) {
-        off_t byte_offset = fc->partition_offset + block * 512;
-        size_t byte_count = (last - block) * 512;
+        off_t byte_offset = fc->partition_offset + block * BLOCK_SIZE;
+        size_t byte_count = (last - block) * BLOCK_SIZE;
         rc = pwrite(fc->fd, buffer, byte_count, byte_offset);
     }
     return rc;
@@ -208,9 +208,9 @@ ssize_t fat_cache_write(struct fat_cache *fc, off_t block, size_t count, const c
 
 static ssize_t flush_buffer(struct fat_cache *fc, int block, int count)
 {
-    off_t byte_offset = fc->partition_offset + block * 512;
-    int cache_index = block * 512;
-    size_t byte_count = count * 512;
+    off_t byte_offset = fc->partition_offset + block * BLOCK_SIZE;
+    int cache_index = block * BLOCK_SIZE;
+    size_t byte_count = count * BLOCK_SIZE;
     ssize_t amount_written = 0;
     while (byte_count) {
         // Write only 128 KB at a time, since raw writing too much

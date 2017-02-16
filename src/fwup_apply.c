@@ -48,9 +48,9 @@ static bool deprecated_task_is_applicable(cfg_t *task, int output_fd)
         // Try to read the MBR. This won't work if the output
         // isn't seekable, but that's ok, since this constraint would
         // fail anyway.
-        uint8_t buffer[512];
-        ssize_t amount_read = pread(output_fd, buffer, 512, 0);
-        if (amount_read != 512)
+        uint8_t buffer[BLOCK_SIZE];
+        ssize_t amount_read = pread(output_fd, buffer, BLOCK_SIZE, 0);
+        if (amount_read != BLOCK_SIZE)
             return false;
 
         struct mbr_partition partitions[4];
@@ -250,7 +250,7 @@ static int fatfs_ptr_callback(struct fun_context *fctx, off_t block_offset, stru
         // everything to disk, but not perform an operation.
         if (block_offset >= 0) {
             // TODO: Make cache size configurable
-            if (fat_cache_init(&p->fc, fctx->output_fd, block_offset * 512, 12 * 1024 *1024) < 0)
+            if (fat_cache_init(&p->fc, fctx->output_fd, block_offset * BLOCK_SIZE, 12 * 1024 *1024) < 0)
                 return -1;
 
             p->using_fat_cache = true;

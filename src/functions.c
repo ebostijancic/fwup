@@ -243,11 +243,11 @@ int raw_write_run(struct fun_context *fctx)
     // that we flush any cached data.
     fctx->fatfs_ptr(fctx, -1, NULL);
 
-    off_t dest_offset = strtoull(fctx->argv[1], NULL, 0) * 512;
+    off_t dest_offset = strtoull(fctx->argv[1], NULL, 0) * BLOCK_SIZE;
     off_t len_written = 0;
 
     struct block_writer writer;
-    OK_OR_CLEANUP(block_writer_init(&writer, fctx->output_fd, 120 * 1024, 9)); // 9 -> 512 byte blocks
+    OK_OR_CLEANUP(block_writer_init(&writer, fctx->output_fd, 120 * 1024, BLOCK_SIZE_LOG2));
 
     crypto_generichash_state hash_state;
     crypto_generichash_init(&hash_state, NULL, 0, crypto_generichash_BYTES);
@@ -275,7 +275,7 @@ int raw_write_run(struct fun_context *fctx)
     if (ending_hole > 0) {
         // If this is a regular file, seeking is insufficient in making the file
         // the right length, so write a block of zeros to the end.
-        char zeros[512];
+        char zeros[BLOCK_SIZE];
         memset(zeros, 0, sizeof(zeros));
         off_t to_write = sizeof(zeros);
         if (ending_hole < to_write)
@@ -320,7 +320,7 @@ int raw_memset_validate(struct fun_context *fctx)
         ERR_RETURN("raw_memset requires a block offset, count, and value");
 
     CHECK_ARG_UINT64(fctx->argv[1], "raw_memset requires a non-negative integer block offset");
-    CHECK_ARG_UINT64_MAX(fctx->argv[2], INT32_MAX / 512, "raw_memset requires a non-negative integer block count");
+    CHECK_ARG_UINT64_MAX(fctx->argv[2], INT32_MAX / BLOCK_SIZE, "raw_memset requires a non-negative integer block count");
     CHECK_ARG_UINT64_MAX(fctx->argv[3], 255, "raw_memset requires value to be between 0 and 255");
 
     return 0;
@@ -330,7 +330,7 @@ int raw_memset_compute_progress(struct fun_context *fctx)
     int count = strtol(fctx->argv[2], NULL, 0);
 
     // Count each byte as a progress unit
-    fctx->progress->total_units += count * 512;
+    fctx->progress->total_units += count * BLOCK_SIZE;
 
     return 0;
 }
@@ -340,16 +340,16 @@ int raw_memset_run(struct fun_context *fctx)
     // that we flush any cached data.
     fctx->fatfs_ptr(fctx, -1, NULL);
 
-    const int block_size = 512;
+    const int block_size = BLOCK_SIZE;
 
-    off_t dest_offset = strtoull(fctx->argv[1], NULL, 0) * 512;
-    int count = strtol(fctx->argv[2], NULL, 0) * 512;
+    off_t dest_offset = strtoull(fctx->argv[1], NULL, 0) * BLOCK_SIZE;
+    int count = strtol(fctx->argv[2], NULL, 0) * BLOCK_SIZE;
     int value = strtol(fctx->argv[3], NULL, 0);
     char buffer[block_size];
     memset(buffer, value, sizeof(buffer));
 
     struct block_writer writer;
-    OK_OR_RETURN(block_writer_init(&writer, fctx->output_fd, 120 * 1024, 9)); // 9 -> 512 byte blocks
+    OK_OR_RETURN(block_writer_init(&writer, fctx->output_fd, 120 * 1024, BLOCK_SIZE_LOG2));
 
     off_t len_written = 0;
     off_t offset;
@@ -737,13 +737,13 @@ int mbr_write_run(struct fun_context *fctx)
 {
     const char *mbr_name = fctx->argv[1];
     cfg_t *mbrsec = cfg_gettsec(fctx->cfg, "mbr", mbr_name);
-    uint8_t buffer[512];
+    uint8_t buffer[BLOCK_SIZE];
 
     if (mbr_create_cfg(mbrsec, buffer) < 0)
         return -1;
 
-    ssize_t written = pwrite(fctx->output_fd, buffer, 512, 0);
-    if (written != 512)
+    ssize_t written = pwrite(fctx->output_fd, buffer, BLOCK_SIZE, 0);
+    if (written != BLOCK_SIZE)
         ERR_RETURN("unexpected error writing mbr: %s", strerror(errno));
 
     progress_report(fctx->progress, 1);
@@ -786,7 +786,7 @@ int uboot_clearenv_run(struct fun_context *fctx)
     if (uboot_env_write(&env, buffer) < 0)
         ERR_CLEANUP();
 
-    ssize_t written = pwrite(fctx->output_fd, buffer, env.env_size, env.block_offset * 512);
+    ssize_t written = pwrite(fctx->output_fd, buffer, env.env_size, env.block_offset * BLOCK_SIZE);
     if (written != (ssize_t) env.env_size)
         ERR_CLEANUP_MSG("unexpected error writing uboot environment: %s", strerror(errno));
 
@@ -831,7 +831,7 @@ int uboot_setenv_run(struct fun_context *fctx)
     fctx->fatfs_ptr(fctx, -1, NULL);
 
     char *buffer = malloc(env.env_size);
-    ssize_t read = pread(fctx->output_fd, buffer, env.env_size, env.block_offset * 512);
+    ssize_t read = pread(fctx->output_fd, buffer, env.env_size, env.block_offset * BLOCK_SIZE);
     if (read != (ssize_t) env.env_size)
         ERR_CLEANUP_MSG("unexpected error reading uboot environment: %s", strerror(errno));
 
@@ -844,7 +844,7 @@ int uboot_setenv_run(struct fun_context *fctx)
     if (uboot_env_write(&env, buffer) < 0)
         ERR_CLEANUP();
 
-    ssize_t written = pwrite(fctx->output_fd, buffer, env.env_size, env.block_offset * 512);
+    ssize_t written = pwrite(fctx->output_fd, buffer, env.env_size, env.block_offset * BLOCK_SIZE);
     if (written != (ssize_t) env.env_size)
         ERR_CLEANUP_MSG("unexpected error writing uboot environment: %s", strerror(errno));
 
@@ -889,7 +889,7 @@ int uboot_unsetenv_run(struct fun_context *fctx)
     fctx->fatfs_ptr(fctx, -1, NULL);
 
     char *buffer = malloc(env.env_size);
-    ssize_t read = pread(fctx->output_fd, buffer, env.env_size, env.block_offset * 512);
+    ssize_t read = pread(fctx->output_fd, buffer, env.env_size, env.block_offset * BLOCK_SIZE);
     if (read != (ssize_t) env.env_size)
         ERR_CLEANUP_MSG("unexpected error reading uboot environment: %s", strerror(errno));
 
@@ -902,7 +902,7 @@ int uboot_unsetenv_run(struct fun_context *fctx)
     if (uboot_env_write(&env, buffer) < 0)
         ERR_CLEANUP();
 
-    ssize_t written = pwrite(fctx->output_fd, buffer, env.env_size, env.block_offset * 512);
+    ssize_t written = pwrite(fctx->output_fd, buffer, env.env_size, env.block_offset * BLOCK_SIZE);
     if (written != (ssize_t) env.env_size)
         ERR_CLEANUP_MSG("unexpected error writing uboot environment: %s", strerror(errno));
 
