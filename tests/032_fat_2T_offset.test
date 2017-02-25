@@ -91,4 +91,4 @@ done
 $FSCK_FAT $WORK/fwup-fat.img
 
 # Check that the verify logic works on this file
-$FWUP_APPLY -V -i $FWFILE
+$FWUP_VERIFY -V -i $FWFILE
